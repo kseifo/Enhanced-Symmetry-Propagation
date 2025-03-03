@@ -35,6 +35,9 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #include "minisat/core/Dimacs.h"
 #include "minisat/core/Solver.h"
 
+#include "minisat/mtl/Vec.h"
+#include "minisat/core/SolverTypes.h"
+
 using namespace Minisat;
 
 //=================================================================================================
@@ -71,15 +74,12 @@ int main(int argc, char** argv)
         IntOption    verb   ("MAIN", "verb",   "Verbosity level (0=silent, 1=some, 2=more).", 1, IntRange(0, 2));
         IntOption    cpu_lim("MAIN", "cpu-lim","Limit on CPU time allowed in seconds.\n", 0, IntRange(0, INT32_MAX));
         IntOption    mem_lim("MAIN", "mem-lim","Limit on memory usage in megabytes.\n", 0, IntRange(0, INT32_MAX));
-	BoolOption   use_dynamic("MAIN", "dynamic-breaking","Use provided dynamic symmetry breaking.\n", true);
+	    BoolOption   use_dynamic("MAIN", "dynamic-breaking","Use provided dynamic symmetry breaking.\n", true);
         
         parseOptions(argc, argv, true);
         Solver S;
         double initial_time = cpuTime();
-        std::string filename = "example";
-        std::string problemtype = "simple";
-        S.call_shatter(filename, problemtype);
-        
+
         S.verbosity = verb;
         
         solver = &S;
@@ -109,9 +109,13 @@ int main(int argc, char** argv)
         if(use_dynamic){
         //parse symmetry file
 		char symFile[strlen(argv[1])+5];
-		snprintf(symFile, sizeof(symFile), "%s.txt", argv[1]);
+        snprintf(symFile, sizeof(symFile), "%s.txt", argv[1]);
+        S.file_path = symFile;
+        S.setTempPath(symFile);
+        S.printFilePath();
+        S.printTempPath();
 		in=gzopen(symFile,"rb");
-	
+        
 		if (in != NULL){
 			parse_SYMMETRY(in,S);
 		}

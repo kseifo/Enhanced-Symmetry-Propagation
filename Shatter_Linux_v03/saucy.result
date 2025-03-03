@@ -10,3 +10,16 @@ hole005.cnf.g 86400 9 0.00
 hole005.cnf.g 86400 9 0.00
 example.cnf.g 128 7 0.00
 example.cnf.g 128 7 0.00
+example.cnf.g 128 7 0.00
+example.cnf.g 128 7 0.00
+hole005.cnf.g 86400 9 0.00
+hole005.cnf.g 86400 9 0.00
+hole005.cnf.g 86400 9 0.00
+test/example.cnf.g 128 7 0.00
+example.cnf.g 128 7 0.00
+testdir/example.cnf.g 128 7 0.00
+simple/easy.cnf.g 8 2 0.00
+simple/easy.cnf.g 6 2 0.00
+simple/easy.cnf.g 8 2 0.00
+simple/easy.cnf.g 24 3 0.00
+simple/easy.cnf.g 8 2 0.00

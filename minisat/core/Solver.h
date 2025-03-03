@@ -149,6 +149,8 @@ public:
 
     // Mode of operation:
     //
+	std::string file_path;
+	std::string temp_path;
     int       verbosity;
     double    var_decay;
     double    clause_decay;
@@ -176,7 +178,7 @@ public:
 
     // Statistics: (read-only member variable)
     //
-    uint64_t solves, starts, decisions, rnd_decisions, propagations, conflicts;
+    uint64_t solves, starts, decisions, rnd_decisions, propagations, conflicts, recalc_limit;
 	uint64_t dec_vars, num_clauses, num_learnts, clauses_literals, learnts_literals, max_literals, tot_literals;
     uint64_t sympropagations, symconflicts, invertingSyms;
 
@@ -206,10 +208,18 @@ public:
 
 	void 	unsatisfiedClauses(vec<CRef>& clauses);
 	void 	recalculateSymmetries();
-	void 	call_shatter(std::string filename, std::string problemtype);
-	void 	clauses_to_cnf(FILE* f, vec<CRef>& clauses);
+	void 	clearSymmetries();
+	void 	call_shatter();
+	void 	textCNF(vec<CRef>& unsats);
 	void 	limit_recalculation();
 	void 	activity_calculation();
+	void	increase_limit(int inc);
+	void 	printAssignment();
+	void 	printFilePath();
+	void 	setTempPath(const std::string& fullPath);
+	std::string 	getTempPath();
+	void 	printTempPath();
+	void 	printClauses(vec<CRef>& clauses);
 protected:
 
     // Helper structures:
@@ -346,9 +356,7 @@ protected:
 	vec<bool>			decisionVars;		// map mapping vars to a bool which if true iff the lit is a decision lit.
 	vec<vec<Symmetry*> > watcherSymmetries; // List of symmetries which should be notified know when a certain literal  becomes true (index is lit)
 	vec<Lit> 			implic;				// used when constructing clauses
-	const static bool	debug=false; 		// if true the slow test methods are enabled
-	int 				recalculation_limit; // the number of conflicts after which the symmetries are recalculated
-    // Static helpers:
+	const static bool	debug=false; 		// if true the slow test methods are enabled    // Static helpers:
     //
 
     // Returns a random float 0 <= x < 1. Seed must never be 0.

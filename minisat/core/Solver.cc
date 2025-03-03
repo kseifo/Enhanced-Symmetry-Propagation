@@ -28,6 +28,7 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #include <iostream>
 #include <cstdlib>
 #include <cstdio>
+#include <fstream>
 
 #include <math.h>
 
@@ -36,8 +37,10 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #include "minisat/utils/System.h"
 #include "minisat/core/Solver.h"
 #include "minisat/core/Dimacs.h"
+#include "minisat/core/SolverTypes.h"
 
 using namespace Minisat;
+using namespace std;
 
 //=================================================================================================
 // Options:
@@ -99,7 +102,7 @@ Solver::Solver() :
 
     // Statistics: (formerly in 'SolverStats')
     //
-  , solves(0), starts(0), decisions(0), rnd_decisions(0), propagations(0), conflicts(0)
+  , solves(0), starts(0), decisions(0), rnd_decisions(0), propagations(0), conflicts(0), recalc_limit(2)
   , dec_vars(0), num_clauses(0), num_learnts(0), clauses_literals(0), learnts_literals(0), max_literals(0), tot_literals(0)
   , sympropagations(0), symconflicts(0), invertingSyms(0)
 
@@ -365,25 +368,92 @@ void Solver::unsatisfiedClauses(vec<CRef>& result){
     }   
 }
 
-void Solver::call_shatter(std::string filename, std::string problemtype){
 
-    // Command to execute the shatter script
-    std::string movcnf = "mv ../../../cnf\\ test\\ files/"+ problemtype+"/" +filename+ ".cnf"+" ../../../Shatter_Linux_v03/";
-    std::string shattercommand = "cd ../../../Shatter_Linux_v03 && ./shatter.pl "+filename+".cnf";
-    std::string movcmd = "mv ../../../Shatter_Linux_v03/" + filename + ".cnf.txt" +" ../../../cnf\\ test\\ files/"+problemtype+"/";
-    std::string movcnfback  = "mv ../../../Shatter_Linux_v03/"+filename+".cnf"+" ../../../cnf\\ test\\ files/"+ problemtype+"/";
-    // Execute the command
-    int resultmovcnf = system(movcnf.c_str());
-    int resultshattercommand = system(shattercommand.c_str());
-    int resultmovcmd = system(movcmd.c_str());
-    int resultmovcnfback = system(movcnfback.c_str());
-    // Check if the command was executed successfully
-    if(resultmovcnf == -1 || resultshattercommand == -1 || resultmovcmd == -1 || resultmovcnfback == -1){
-        std::cout << "Error executing the shatter command" << std::endl;
-    }
-
+void Solver::clearSymmetries(){
+    symmetries.clear(true);
+    invertingSyms=0;
+    watcherSymmetries.clear();
 }
 
+void Solver::textCNF(vec<CRef>& unsats){
+    ofstream myfile;
+    myfile.open(getTempPath().c_str());
+    myfile << "p cnf " << nVars() << " " << unsats.size() << endl;
+    for(int i=0; i<unsats.size(); ++i){
+        Clause& cl = ca[unsats[i]];
+        for(int j=0; j<cl.size(); ++j){
+            myfile << toDimacs(cl[j]) << " ";
+        }
+        myfile << "0" << endl;
+    }
+    myfile.close();
+}
+
+string Solver::getTempPath(){
+    return temp_path;
+}
+
+void Solver::setTempPath(const std::string& fullPath) {
+    // 1. Split the fullPath into directory and filename parts.
+    size_t lastSlashPos = fullPath.find_last_of("/\\");
+    std::string directory;
+    std::string filename;
+    if (lastSlashPos != std::string::npos) {
+        directory = fullPath.substr(0, lastSlashPos + 1); // include the slash
+        filename  = fullPath.substr(lastSlashPos + 1);
+    } else {
+        filename = fullPath;
+    }
+
+    // 2. Remove the trailing ".txt" if it exists.
+    const std::string txtExt = ".txt";
+    filename.erase(filename.size() - txtExt.size(), txtExt.size());
+    
+    // 3. Replace the file's base name (the part before the first dot) with "temp".
+    size_t dotPos = filename.find('.');
+    std::string newFilename;
+    if (dotPos != std::string::npos) {
+        // Preserve the extension (everything from the dot on)
+        newFilename = "temp" + filename.substr(dotPos);
+    } else {
+        // If there is no dot, simply use "temp"
+        newFilename = "temp";
+    }
+
+    // 4. Combine the directory and the new filename.
+    temp_path = directory + newFilename;
+}
+
+void Solver::increase_limit(int inc){
+    recalc_limit+=inc;
+}
+
+void Solver::printAssignment(){
+    printf("Assignments:\n");
+    for(Var v = 0; v<assigns.size(); ++v){
+        lbool val = assigns[v];
+        if (val == l_True) {
+            printf("Var %d: True\n", v+1);
+        } else if (val == l_False) {
+            printf("Var %d: False\n", v+1);
+        }
+    }
+}
+
+void Solver::printFilePath(){
+    printf("File path: %s\n",file_path.c_str());
+}
+
+void Solver::printTempPath(){
+    printf("Temp path: %s\n",temp_path.c_str());
+}
+
+void Solver::printClauses(vec<CRef>& clauses){
+    for(int i=0; i<clauses.size(); ++i){
+        testPrintClauseDimacs(clauses[i]);
+    }
+    
+}
 // sym_testing
 
 bool Solver::testSymmetry(Symmetry* sym){
@@ -1120,6 +1190,15 @@ lbool Solver::search(int nof_conflicts)
                 // New variable decision:
                 decisions++;
                 next = pickBranchLit();
+
+                if(decisions==recalc_limit){
+                    vec<CRef> clauses;
+                    unsatisfiedClauses(clauses);
+                    textCNF(clauses);
+                    printClauses(clauses);
+                    printAssignment();
+                    increase_limit(2);
+                }
 
                 if (next == lit_Undef)
                     // Model found:
