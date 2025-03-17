@@ -110,10 +110,10 @@ int main(int argc, char** argv)
         //parse symmetry file
 		char symFile[strlen(argv[1])+5];
         snprintf(symFile, sizeof(symFile), "%s.txt", argv[1]);
+        
         S.file_path = symFile;
         S.setTempPath(symFile);
-        S.printFilePath();
-        S.printTempPath();
+
 		in=gzopen(symFile,"rb");
         
 		if (in != NULL){

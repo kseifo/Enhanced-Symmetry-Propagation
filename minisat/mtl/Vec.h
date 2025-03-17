@@ -24,7 +24,7 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #include <assert.h>
 #include <limits>
 #include <new>
-
+#include <iostream>
 #include "minisat/mtl/IntTypes.h"
 #include "minisat/mtl/XAlloc.h"
 
@@ -69,12 +69,16 @@ public:
     void     growTo   (Size size);
     void     growTo   (Size size, const T& pad);
     void     clear    (bool dealloc = false);
-
+    void     clearSymmetryVec(bool dealloc = false);
     // Stack interface:
     void     push  (void)              { if (sz == cap) capacity(sz+1); new (&data[sz]) T(); sz++; }
     //void     push  (const T& elem)     { if (sz == cap) capacity(sz+1); data[sz++] = elem; }
-    void     push  (const T& elem)     { if (sz == cap) capacity(sz+1); new (&data[sz++]) T(elem); }
+    void     push  (const T& elem)     { if (sz == cap)
+        try{capacity(sz+1); }
+        catch(OutOfMemoryException& e){std::cout<<"boiboiboi" << std::endl;}
+        new (&data[sz++]) T(elem); }
     void     push_ (const T& elem)     { assert(sz < cap); data[sz++] = elem; }
+    bool     safePush(const T& elem);
     void     pop   (void)              { assert(sz > 0); sz--, data[sz].~T(); }
     // NOTE: it seems possible that overflow can happen in the 'sz+1' expression of 'push()', but
     // in fact it can not since it requires that 'cap' is equal to INT_MAX. This in turn can not
@@ -102,8 +106,7 @@ void vec<T,_Size>::capacity(Size min_cap) {
     if ( ((size_max <= std::numeric_limits<int>::max()) && (add > size_max - cap))
     ||   (((data = (T*)::realloc(data, (cap += add) * sizeof(T))) == NULL) && errno == ENOMEM) )
         throw OutOfMemoryException();
- }
-
+}
 
 template<class T, class _Size>
 void vec<T,_Size>::growTo(Size size, const T& pad) {
@@ -128,6 +131,18 @@ void vec<T,_Size>::clear(bool dealloc) {
         sz = 0;
         if (dealloc) free(data), data = NULL, cap = 0; } }
 
+template<class T, class _Size>
+void vec<T,_Size>::clearSymmetryVec(bool dealloc) {
+    if (data != NULL) {
+        // Just reset size and optionally deallocate, but don't call destructors
+        sz = 0;
+        if (dealloc) {
+            free(data);
+            data = NULL;
+            cap = 0;
+        }
+    }
+}
 //=================================================================================================
 }
 

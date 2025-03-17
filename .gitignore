@@ -1,2 +1,8 @@
 config.mk
 build
+temp.cnf
+temp.cnf.txt
+temp.cnf.Sym.cnf
+temp.cnf.SymOnly.cnf
+temp.cnf.g
+temp.cnf_new.txt

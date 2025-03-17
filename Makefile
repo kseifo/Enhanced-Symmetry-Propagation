@@ -17,7 +17,7 @@ BUILD_DIR      ?= build
 MINISAT_RELSYM ?= -g
 
 # Sets of compile flags for different build types
-MINISAT_REL    ?= -O3 -D NDEBUG
+MINISAT_REL    ?= -O3 -D NDEBUG 
 MINISAT_DEB    ?= -O0 -D DEBUG 
 MINISAT_PRF    ?= -O3 -D NDEBUG
 MINISAT_FPIC   ?= -fpic
@@ -60,7 +60,7 @@ SOMINOR=1
 SORELEASE?=.0#   Declare empty to leave out from library file name.
 
 MINISAT_CXXFLAGS = -I. -D __STDC_LIMIT_MACROS -D __STDC_FORMAT_MACROS -Wall -Wno-parentheses -Wextra
-MINISAT_LDFLAGS  = -Wall -lz
+MINISAT_LDFLAGS  = -Wall -lz 
 
 ECHO=@echo
 ifeq ($(VERB),)
@@ -96,9 +96,9 @@ $(BUILD_DIR)/dynamic/%.o:			MINISAT_CXXFLAGS +=$(MINISAT_REL) $(MINISAT_FPIC)
 
 ## Build-type Link-flags:
 $(BUILD_DIR)/profile/bin/$(MINISAT):		MINISAT_LDFLAGS += -pg
-$(BUILD_DIR)/release/bin/$(MINISAT):		MINISAT_LDFLAGS += --static $(MINISAT_RELSYM)
+$(BUILD_DIR)/release/bin/$(MINISAT):		MINISAT_LDFLAGS +=  $(MINISAT_RELSYM)
 $(BUILD_DIR)/profile/bin/$(MINISAT_CORE):	MINISAT_LDFLAGS += -pg
-$(BUILD_DIR)/release/bin/$(MINISAT_CORE):	MINISAT_LDFLAGS += --static $(MINISAT_RELSYM)
+$(BUILD_DIR)/release/bin/$(MINISAT_CORE):	MINISAT_LDFLAGS +=  $(MINISAT_RELSYM)
 
 ## Executable dependencies
 $(BUILD_DIR)/release/bin/$(MINISAT):	 	$(BUILD_DIR)/release/minisat/simp/Main.o $(BUILD_DIR)/release/lib/$(MINISAT_SLIB)

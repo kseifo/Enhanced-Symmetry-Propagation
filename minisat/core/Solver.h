@@ -37,7 +37,8 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #include <set>
 #include <cstdlib>
 #include <string>
-
+#include <map>
+#include <iostream>
 namespace Minisat {
 
 class Symmetry;
@@ -162,6 +163,7 @@ public:
     bool      rnd_pol;            // Use random polarities for branching heuristics.
     bool      rnd_init_act;       // Initialize variable activities with a small random value.
     double    garbage_frac;       // The fraction of wasted memory allowed before a garbage collection is triggered.
+	bool	  recalc;
 
     int       restart_first;      // The initial restart limit.                                                                (default 100)
     double    restart_inc;        // The factor with which the restart limit is multiplied in each restart.                    (default 1.5)
@@ -192,6 +194,7 @@ public:
 	bool 	canPropagate(Symmetry* sym, Clause& cl);
 	int		nSymmetries(){return symmetries.size();}
 	int		nInvertingSymmetries(){return invertingSyms;}
+	void 	resetNInverting(){invertingSyms=0;}
 	bool	isSatisfied(Clause cr){return satisfied(cr);};
 
 	bool	testSymmetry(Symmetry* sym);
@@ -205,21 +208,27 @@ public:
 	void 	testPrintValue(Lit l);
 	void 	testPrintClauseDimacs(CRef clause);
 	int		toDimacs(Lit l);
-
+	
+	u_int32_t tempVars;
 	void 	unsatisfiedClauses(vec<CRef>& clauses);
 	void 	recalculateSymmetries();
 	void 	clearSymmetries();
 	void 	call_shatter();
 	void 	textCNF(vec<CRef>& unsats);
 	void 	limit_recalculation();
-	void 	activity_calculation();
-	void	increase_limit(int inc);
+	void	increase_limit(int total, int partial);
 	void 	printAssignment();
 	void 	printFilePath();
 	void 	setTempPath(const std::string& fullPath);
 	std::string 	getTempPath();
+	std::string 	getFilePath();
 	void 	printTempPath();
 	void 	printClauses(vec<CRef>& clauses);
+	void	applyReverseMapSymmetries();
+	void	clearMaps();
+	void 	modifyOldSymmetries();
+	void    setTempVars();
+	void	setBaseLimit(int limit);
 protected:
 
     // Helper structures:
@@ -357,7 +366,10 @@ protected:
 	vec<vec<Symmetry*> > watcherSymmetries; // List of symmetries which should be notified know when a certain literal  becomes true (index is lit)
 	vec<Lit> 			implic;				// used when constructing clauses
 	const static bool	debug=false; 		// if true the slow test methods are enabled    // Static helpers:
-    //
+    
+	std::map<Var, int> 	varIndex;
+	std::map<int, Var> reverseVarIndex;
+	//
 
     // Returns a random float 0 <= x < 1. Seed must never be 0.
     static inline double drand(double& seed) {
@@ -510,8 +522,8 @@ public:
 				}
 			}
 		}
-		sym.growTo(maxIndex+1);
-		inv.growTo(maxIndex+1);
+		sym.growTo(maxIndex+1, lit_Undef);
+		inv.growTo(maxIndex+1, lit_Undef);
 		for(int i=0; i<sym.size(); ++i){
 			sym[i]=toLit(i);
 			inv[i]=toLit(i);
@@ -524,7 +536,11 @@ public:
 		reasonOfPermInactive=lit_Undef;
 		nextToPropagate=0;
 	}
-
+	~Symmetry() {
+		notifiedLits.clear(); // Ensures vec<Lit> is emptied before destruction
+		sym.clear();
+		inv.clear();
+	}
 	void print(){
 		printf("Symmetry: %i - neededForActive: %i\n",getId(),amountNeededForActive);
 		for(int i=0; i<sym.size(); ++i){
@@ -666,7 +682,6 @@ public:
 		}
 		return true;
 	}
-
 	void notifyEnqueued(Lit l){
 		assert(getSymmetrical(l)!=l);
 		assert(s->value(l)==l_True);
@@ -692,8 +707,17 @@ public:
 			}
 			// else s->value(symmetrical)==l_True
 		}
+		
 	}
-
+	vec<Lit>::Size getNotifiedLits(){
+		return notifiedLits.size();
+	}
+	int getNotifiedCap(){
+		return notifiedLits.capacity();
+	}
+	int getRawNext(){
+		return nextToPropagate;
+	}
 	void notifyBacktrack(Lit l){
 		assert(getSymmetrical(l)!=l);
 		assert(s->value(var(l))!=l_Undef);

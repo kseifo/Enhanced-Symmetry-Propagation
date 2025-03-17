@@ -31,7 +31,7 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #include <fstream>
 
 #include <math.h>
-
+#include <map>
 #include "minisat/mtl/Alg.h"
 #include "minisat/mtl/Sort.h"
 #include "minisat/utils/System.h"
@@ -62,7 +62,7 @@ static DoubleOption  opt_garbage_frac      (_cat, "gc-frac",     "The fraction o
 static BoolOption    opt_storing	       (_cat, "storing",     "Store generated symmetry clauses for future use", true);
 static BoolOption    opt_inverting	       (_cat, "inverting-opt","Adjust initial variable order to make inverting symmetries faster", true);
 static BoolOption    opt_inactive	       (_cat, "inactive-opt","Conduct symmetry propagation for inactive symmetries", true);
-
+static BoolOption    opt_recalc            (_cat, "recalc",      "Recalculate symmetries after each propagation", false);
 
 //=================================================================================================
 // Constructor/Destructor:
@@ -85,7 +85,7 @@ Solver::Solver() :
   , garbage_frac     (opt_garbage_frac)
   , restart_first    (opt_restart_first)
   , restart_inc      (opt_restart_inc)
-
+  , recalc           (opt_recalc) 
     // Parameters (the rest):
     //
   , learntsize_factor((double)1/(double)3), learntsize_inc(1.1)
@@ -102,7 +102,7 @@ Solver::Solver() :
 
     // Statistics: (formerly in 'SolverStats')
     //
-  , solves(0), starts(0), decisions(0), rnd_decisions(0), propagations(0), conflicts(0), recalc_limit(2)
+  , solves(0), starts(0), decisions(0), rnd_decisions(0), propagations(0), conflicts(0)
   , dec_vars(0), num_clauses(0), num_learnts(0), clauses_literals(0), learnts_literals(0), max_literals(0), tot_literals(0)
   , sympropagations(0), symconflicts(0), invertingSyms(0)
 
@@ -295,14 +295,16 @@ void Solver::addSymmetry(vec<Lit>& from, vec<Lit>& to){
 	if(isInverting){
 		++invertingSyms;
 	}
-
-	if(verbosity>=2){sym->print();} 
+	if(verbosity>=2){sym->print();}
 	assert(testSymmetry(sym));
 }
 
 CRef Solver::propagateSymmetrical(Symmetry* sym, Lit l){
 	assert(value(sym->getSymmetrical(l))!=l_True);
-
+    if (sym == nullptr) {
+        std::cerr << "Error: Attempted to access a null symmetry in propagateSymmetrical()" << std::endl;
+        return CRef_Undef;
+    }
 	++sympropagations; //note: every symmetrical propagation either induces a conflict, or will be examined in the propagation queue (see the counter propagations)
 
 	implic.clear();
@@ -346,7 +348,7 @@ CRef Solver::propagateSymmetrical(Symmetry* sym, Lit l){
 void Solver::notifySymmetries(Lit p){
 	//	printf("Enqueueing %i at level %i - isDecision: %i\n",toInt(p),decisionLevel(),isDecision(p));
 	for(int i=watcherSymmetries[toInt(p)].size()-1; i>=0 ; --i){
-		watcherSymmetries[toInt(p)][i]->notifyEnqueued(p);
+        watcherSymmetries[toInt(p)][i]->notifyEnqueued(p);     
 	}
 	assert( testActivityForSymmetries() );
 }
@@ -355,6 +357,7 @@ void Solver::notifySymmetries(Lit p){
 
 void Solver::unsatisfiedClauses(vec<CRef>& result){
     result.clear();
+    // Check original clauses
     for (int i = 0; i < clauses.size(); i++){
         if (!satisfied(ca[clauses[i]])){
             result.push(clauses[i]);
@@ -368,93 +371,282 @@ void Solver::unsatisfiedClauses(vec<CRef>& result){
     }   
 }
 
+void Solver::clearSymmetries() {
+    // Clear watcherSymmetries' inner vectors
+    for (int i = 0; i < watcherSymmetries.size(); i++) {
+        watcherSymmetries[i].clearSymmetryVec();
+    }
+    // Delete Symmetry objects and dereference pointers
+    for (int i = 0; i < symmetries.size(); i++) {
+        delete symmetries[i];
+        symmetries[i] = nullptr;
+    }
 
-void Solver::clearSymmetries(){
-    symmetries.clear(true);
-    invertingSyms=0;
-    watcherSymmetries.clear();
+    // Revert number of inverting syms and clear symmetries vec
+    invertingSyms = 0;
+    symmetries.clearSymmetryVec();
 }
 
-void Solver::textCNF(vec<CRef>& unsats){
+void Solver::textCNF(vec<CRef>& unsats) {
+    string filepath = getTempPath();
     ofstream myfile;
-    myfile.open(getTempPath().c_str());
-    myfile << "p cnf " << nVars() << " " << unsats.size() << endl;
-    for(int i=0; i<unsats.size(); ++i){
+    myfile.open(filepath);
+
+    if (!myfile.is_open()) {
+        std::cerr << "Error opening file: " << filepath << std::endl;
+        return;
+    }
+
+    int var_count = 0;
+
+    // Create mapping from variable to new variable index
+    for (int i = 0; i < unsats.size(); ++i) {
         Clause& cl = ca[unsats[i]];
-        for(int j=0; j<cl.size(); ++j){
-            myfile << toDimacs(cl[j]) << " ";
+        for (int j = 0; j < cl.size(); ++j) {
+            Var v = var(cl[j]);
+            if (varIndex.find(v) == varIndex.end()) {
+                varIndex[v] = ++var_count;
+            }
+        }
+    }
+
+    tempVars = varIndex.size();
+
+    // Create reverse mapping to be applied to symmetry file
+    for(const auto &pair: varIndex){
+        reverseVarIndex[pair.second] = pair.first+1;
+    }
+
+    // Write the CNF header
+    myfile << "p cnf " << var_count << " " << unsats.size() << endl;
+
+    // Write the CNF data to the file with the new variable indices
+    for (int i = 0; i < unsats.size(); ++i) {
+        Clause& cl = ca[unsats[i]];
+        for (int j = 0; j < cl.size(); ++j) {
+            Var v = var(cl[j]);
+            int mapped_var = varIndex[v];
+            myfile << (sign(cl[j]) ? "-" : "") << mapped_var << " ";
         }
         myfile << "0" << endl;
     }
+
+    // Close the file
     myfile.close();
+}
+
+void Solver::applyReverseMapSymmetries() {
+    // Open the input file
+    ifstream infile(getTempPath() + ".txt");
+    if (!infile) {
+        std::cerr << "Error opening file: " << getTempPath() + ".txt" << std::endl;
+        return;
+    }
+    // Open the output file
+    ofstream outfile(getTempPath() + "_new.txt");
+    if (!outfile.is_open()) {
+        std::cerr << "Error opening file: " << getTempPath() + "_new.txt" << std::endl;
+        infile.close();
+        return;
+    }
+    
+    char in;
+    string num;
+    string cycle = "";
+    bool skipCycle = false;
+    bool inCycle = false;
+    while (infile.get(in)) {
+        // Handle opening bracket of cycle
+        if (in == '(') {
+            inCycle = true;
+            cycle = "(";  // Start a new cycle
+            num = "";     // Reset number accumulator
+            skipCycle = false;
+        }
+        // Handle closing bracket of cycle
+        else if (in == ')') {
+            // If there's a number pending, process it first
+            if (!num.empty()) {
+                try {
+                    int numValue = stoi(num);
+                    if (numValue > 2 * reverseVarIndex.size()) {
+                        // Skip clause variables
+                        skipCycle = true;
+                    } else if (numValue > reverseVarIndex.size()) {
+                        int posNum = numValue - reverseVarIndex.size();
+                        if (reverseVarIndex.find(posNum) != reverseVarIndex.end()) {
+                            int image = reverseVarIndex[posNum];
+                            image += nVars();
+                            cycle += to_string(image);
+                        } else {
+                            skipCycle = true;
+                        }
+                    } else {
+                        if (reverseVarIndex.find(numValue) != reverseVarIndex.end()) {
+                            cycle += to_string(reverseVarIndex[numValue]);
+                        } else {
+                            skipCycle = true;
+                        }
+                    }
+                } catch (const std::invalid_argument& ia) {
+                    std::cerr << "Invalid argument: " << num << std::endl;
+                    skipCycle = true;
+                } catch (const std::out_of_range& oor) {
+                    std::cerr << "Out of Range error: " << num << std::endl;
+                    skipCycle = true;
+                }
+                num = "";
+            }
+            
+            // Complete the cycle
+            cycle += ")";
+            inCycle = false;
+            
+            // Output the cycle if it's valid
+            if (!skipCycle) {
+                outfile << cycle;
+            }
+            
+            cycle = "";
+        }
+        // Handle structural characters that are written directly
+        else if (in == '[' || in == ']' || in == '\n') {
+            // If we're not in a cycle, write directly to output
+            if (!inCycle) {
+                outfile << in;
+            } else {
+                // If in a cycle, add to cycle buffer
+                cycle += in;
+            }
+        }
+        // Handle comma
+        else if (in == ',') {
+            // If there's a number pending, process it
+            if (!num.empty() && inCycle) {
+                try {
+                    int numValue = stoi(num);
+                    if (numValue > 2 * reverseVarIndex.size()) {
+                        // Skip clause variables
+                        skipCycle = true;
+                    } else if (numValue > reverseVarIndex.size()) {
+                        int posNum = numValue - reverseVarIndex.size();
+                        if (reverseVarIndex.find(posNum) != reverseVarIndex.end()) {
+                            int image = reverseVarIndex[posNum];
+                            image += nVars();
+                            cycle += to_string(image);
+                        } else {
+                            skipCycle = true;
+                        }
+                    } else {
+                        if (reverseVarIndex.find(numValue) != reverseVarIndex.end()) {
+                            cycle += to_string(reverseVarIndex[numValue]);
+                        } else {
+                            skipCycle = true;
+                        }
+                    }
+                } catch (const std::invalid_argument& ia) {
+                    std::cerr << "Invalid argument: " << num << std::endl;
+                    skipCycle = true;
+                } catch (const std::out_of_range& oor) {
+                    std::cerr << "Out of Range error: " << num << std::endl;
+                    skipCycle = true;
+                }
+                num = "";
+            }
+            
+            // Add comma to the current cycle or write directly
+            if (inCycle) {
+                cycle += ',';
+            } else {
+                outfile << ',';
+            }
+        }
+        // Handle digit or other characters
+        else {
+            if (inCycle) {
+                // Accumulate digits for processing
+                num += in;
+            } else {
+                // Not in a cycle, write directly
+                outfile << in;
+            }
+        }
+    }
+    
+    // Close the files
+    infile.close();
+    outfile.close();
+}
+
+void Solver::call_shatter(){
+    string temp = getTempPath();
+    string shavedtemp =  temp.substr(27); // Remove the ../../../Shatter part
+
+    string command = "cd ../../../Shatter_Linux_v03/ && ./shatter.pl "+shavedtemp;
+
+    int res = system(command.c_str()); // Run command
+
+    if(res!=0){
+        std::cerr << "Error running shatter.pl" << std::endl;
+    }
+
+
 }
 
 string Solver::getTempPath(){
     return temp_path;
 }
 
+string Solver::getFilePath(){
+    return file_path;
+}
+
+void Solver::clearMaps(){
+    varIndex.clear();
+    reverseVarIndex.clear();
+}
+
 void Solver::setTempPath(const std::string& fullPath) {
-    // 1. Split the fullPath into directory and filename parts.
+    // Get position of last slash
     size_t lastSlashPos = fullPath.find_last_of("/\\");
     std::string directory;
-    std::string filename;
+    
     if (lastSlashPos != std::string::npos) {
         directory = fullPath.substr(0, lastSlashPos + 1); // include the slash
-        filename  = fullPath.substr(lastSlashPos + 1);
-    } else {
-        filename = fullPath;
+        cout << "Directory: " << directory << endl;
     }
-
-    // 2. Remove the trailing ".txt" if it exists.
-    const std::string txtExt = ".txt";
-    filename.erase(filename.size() - txtExt.size(), txtExt.size());
-    
-    // 3. Replace the file's base name (the part before the first dot) with "temp".
-    size_t dotPos = filename.find('.');
-    std::string newFilename;
-    if (dotPos != std::string::npos) {
-        // Preserve the extension (everything from the dot on)
-        newFilename = "temp" + filename.substr(dotPos);
-    } else {
-        // If there is no dot, simply use "temp"
-        newFilename = "temp";
-    }
-
-    // 4. Combine the directory and the new filename.
-    temp_path = directory + newFilename;
+    temp_path = directory + "temp.cnf";
 }
 
-void Solver::increase_limit(int inc){
-    recalc_limit+=inc;
+void Solver::setBaseLimit(int limit){
+    recalc_limit = int(limit/10);
 }
 
-void Solver::printAssignment(){
-    printf("Assignments:\n");
-    for(Var v = 0; v<assigns.size(); ++v){
-        lbool val = assigns[v];
-        if (val == l_True) {
-            printf("Var %d: True\n", v+1);
-        } else if (val == l_False) {
-            printf("Var %d: False\n", v+1);
-        }
+void Solver::increase_limit(int total, int partial){
+    recalc_limit = recalc_limit * int(1+nVars()/trail.size()); // Increase depending on the ratio of the total number of variables to the size of the assignments
+    cout << "New limit: " << recalc_limit << endl;
+}
+
+void Solver::modifyOldSymmetries(){
+    clearSymmetries(); // Clear symmetries vec and watcherSymmetries vec
+
+    // Open symmetry file
+    string symFile = getTempPath()+"_new.txt";
+    gzFile in = gzopen(symFile.c_str(), "rb");
+
+    if (!in) {
+        cout << "Error: Could not open symmetry file: " << symFile << endl;
+        return;
+    }
+    // Add all new symmetries to solver state and close file
+    parse_SYMMETRY(in, *this);
+    gzclose(in);
+
+    // Notify new symmetries about the current state of the solver
+    for (int i = 0; i < trail.size(); i++) {
+        notifySymmetries(trail[i]);
     }
 }
-
-void Solver::printFilePath(){
-    printf("File path: %s\n",file_path.c_str());
-}
-
-void Solver::printTempPath(){
-    printf("Temp path: %s\n",temp_path.c_str());
-}
-
-void Solver::printClauses(vec<CRef>& clauses){
-    for(int i=0; i<clauses.size(); ++i){
-        testPrintClauseDimacs(clauses[i]);
-    }
-    
-}
-// sym_testing
 
 bool Solver::testSymmetry(Symmetry* sym){
 	if(!debug){ return true; }
@@ -947,6 +1139,7 @@ CRef Solver::propagate()
 			Lit orig = lit_Undef;
 			if(sym->isActive()){
 				orig = sym->getNextToPropagate();
+                
 				if(orig!=lit_Undef){
 					confl = propagateSymmetrical(sym,orig);
 				}
@@ -1191,13 +1384,17 @@ lbool Solver::search(int nof_conflicts)
                 decisions++;
                 next = pickBranchLit();
 
-                if(decisions==recalc_limit){
-                    vec<CRef> clauses;
-                    unsatisfiedClauses(clauses);
-                    textCNF(clauses);
-                    printClauses(clauses);
-                    printAssignment();
-                    increase_limit(2);
+                //Recalculation methods, add -recalc flag to run this section
+                if(decisions==recalc_limit && recalc){
+                    vec<CRef> unsats;
+                    cout<<"Starting recalculation"<<endl;
+                    unsatisfiedClauses(unsats);
+                    textCNF(unsats);
+                    increase_limit(clauses.size(), unsats.size());
+                    call_shatter();
+                    applyReverseMapSymmetries();
+                    clearMaps();
+                    modifyOldSymmetries(); 
                 }
 
                 if (next == lit_Undef)
