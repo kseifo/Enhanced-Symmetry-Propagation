@@ -353,11 +353,11 @@ void Solver::notifySymmetries(Lit p){
 	assert( testActivityForSymmetries() );
 }
 
-// methods used for recalculation of group at certain point during propagation
+// methods used for recalculation of group at certain point during propagation - author: Kareem Seifo
 
 void Solver::unsatisfiedClauses(vec<CRef>& result){
     result.clear();
-    // Check original clauses
+    // Add unsatisfied clauses to result vec
     for (int i = 0; i < clauses.size(); i++){
         Clause& c = ca[clauses[i]];
         if(!satisfied(c)){
@@ -383,6 +383,7 @@ void Solver::clearSymmetries() {
 }
 
 void Solver::textCNF(vec<CRef>& unsats) {
+    // Get the path to the temporary file and open an output stream to it
     string filepath = getTempPath();
     ofstream myfile;
     myfile.open(filepath);
@@ -404,7 +405,7 @@ void Solver::textCNF(vec<CRef>& unsats) {
             }
         }
     }
-
+    // Set the count of variables in the unsatisfied clauses to tempVars
     tempVars = varIndex.size();
 
     // Create reverse mapping to be applied to symmetry file
@@ -573,7 +574,7 @@ void Solver::applyReverseMapSymmetries() {
     outfile.close();
 }
 
-void Solver::call_shatter(){
+void Solver::callShatter(){
     string temp = getTempPath();
     string shavedtemp =  temp.substr(27); // Remove the ../../../Shatter part
 
@@ -582,7 +583,7 @@ void Solver::call_shatter(){
     int res = system(command.c_str()); // Run command
 
     if(res!=0){
-        std::cerr << "Error running shatter.pl" << std::endl;
+        std::cerr << "Error running Shatter" << std::endl;
     }
 
 
@@ -616,7 +617,7 @@ void Solver::setBaseLimit(int limit){
     recalc_limit = int(limit/10);
 }
 
-void Solver::increase_limit(int total, int partial){
+void Solver::increaseLimit(){
     recalc_limit = recalc_limit * int(2*nVars()/(nAssigns()+1)); // Increase depending on the ratio of the total number of variables to the size of the assignments
 }
 
@@ -642,6 +643,8 @@ void Solver::modifyOldSymmetries(){
     }
 
 }
+
+//=================================================================================================
 
 bool Solver::testSymmetry(Symmetry* sym){
 	if(!debug){ return true; }
@@ -1379,13 +1382,13 @@ lbool Solver::search(int nof_conflicts)
                 decisions++;
                 next = pickBranchLit();
 
-                //Recalculation methods, add -recalc flag to run this section
+                //Recalculation method calls, add -recalc flag to command to run this section
                 if(decisions==recalc_limit && recalc){
                     vec<CRef> unsats;
                     unsatisfiedClauses(unsats);
                     textCNF(unsats);
-                    increase_limit(clauses.size(), unsats.size());
-                    call_shatter();
+                    increaseLimit();
+                    callShatter();
                     applyReverseMapSymmetries();
                     clearMaps();
                     modifyOldSymmetries();
