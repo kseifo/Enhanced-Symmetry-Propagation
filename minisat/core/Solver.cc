@@ -338,7 +338,7 @@ CRef Solver::propagateSymmetrical(Symmetry* sym, Lit l){
 		if(addConflictClauses){
 			learnts.push(cr);
 			attachClause(cr);
-			claBumpActivity(ca[cr]);
+            claBumpActivity(ca[cr]);
 		}
 		++symconflicts;
 		return cr;
@@ -359,16 +359,11 @@ void Solver::unsatisfiedClauses(vec<CRef>& result){
     result.clear();
     // Check original clauses
     for (int i = 0; i < clauses.size(); i++){
-        if (!satisfied(ca[clauses[i]])){
+        Clause& c = ca[clauses[i]];
+        if(!satisfied(c)){
             result.push(clauses[i]);
         }
     }
-    // Check learnt clauses
-    for (int i = 0; i < learnts.size(); ++i) {
-        if (!satisfied(ca[learnts[i]])){
-            result.push(learnts[i]);
-        }
-    }   
 }
 
 void Solver::clearSymmetries() {
@@ -613,7 +608,6 @@ void Solver::setTempPath(const std::string& fullPath) {
     
     if (lastSlashPos != std::string::npos) {
         directory = fullPath.substr(0, lastSlashPos + 1); // include the slash
-        cout << "Directory: " << directory << endl;
     }
     temp_path = directory + "temp.cnf";
 }
@@ -623,8 +617,7 @@ void Solver::setBaseLimit(int limit){
 }
 
 void Solver::increase_limit(int total, int partial){
-    recalc_limit = recalc_limit * int(1+nVars()/trail.size()); // Increase depending on the ratio of the total number of variables to the size of the assignments
-    cout << "New limit: " << recalc_limit << endl;
+    recalc_limit = recalc_limit * int(2*nVars()/(nAssigns()+1)); // Increase depending on the ratio of the total number of variables to the size of the assignments
 }
 
 void Solver::modifyOldSymmetries(){
@@ -635,17 +628,19 @@ void Solver::modifyOldSymmetries(){
     gzFile in = gzopen(symFile.c_str(), "rb");
 
     if (!in) {
-        cout << "Error: Could not open symmetry file: " << symFile << endl;
-        return;
+        std::cerr << "ERROR! Could not open file: " << symFile << std::endl;
+        return; 
     }
     // Add all new symmetries to solver state and close file
     parse_SYMMETRY(in, *this);
     gzclose(in);
 
+
     // Notify new symmetries about the current state of the solver
     for (int i = 0; i < trail.size(); i++) {
         notifySymmetries(trail[i]);
     }
+
 }
 
 bool Solver::testSymmetry(Symmetry* sym){
@@ -1387,16 +1382,16 @@ lbool Solver::search(int nof_conflicts)
                 //Recalculation methods, add -recalc flag to run this section
                 if(decisions==recalc_limit && recalc){
                     vec<CRef> unsats;
-                    cout<<"Starting recalculation"<<endl;
                     unsatisfiedClauses(unsats);
                     textCNF(unsats);
                     increase_limit(clauses.size(), unsats.size());
                     call_shatter();
                     applyReverseMapSymmetries();
                     clearMaps();
-                    modifyOldSymmetries(); 
+                    modifyOldSymmetries();
+                    unsats.clear();
                 }
-
+                
                 if (next == lit_Undef)
                     // Model found:
                     return l_True;

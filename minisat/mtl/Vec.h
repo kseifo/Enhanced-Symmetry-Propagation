@@ -75,10 +75,9 @@ public:
     //void     push  (const T& elem)     { if (sz == cap) capacity(sz+1); data[sz++] = elem; }
     void     push  (const T& elem)     { if (sz == cap)
         try{capacity(sz+1); }
-        catch(OutOfMemoryException& e){std::cout<<"boiboiboi" << std::endl;}
+        catch(OutOfMemoryException& e){}
         new (&data[sz++]) T(elem); }
     void     push_ (const T& elem)     { assert(sz < cap); data[sz++] = elem; }
-    bool     safePush(const T& elem);
     void     pop   (void)              { assert(sz > 0); sz--, data[sz].~T(); }
     // NOTE: it seems possible that overflow can happen in the 'sz+1' expression of 'push()', but
     // in fact it can not since it requires that 'cap' is equal to INT_MAX. This in turn can not
