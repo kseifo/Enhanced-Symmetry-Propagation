@@ -88,9 +88,16 @@ public:
     T&       last  (void)              { return data[sz-1]; }
 
     // Vector interface:
-    const T& operator [] (Size index) const { return data[index]; }
-    T&       operator [] (Size index)       { return data[index]; }
-
+    // const T& operator [] (Size index) const { return data[index]; }
+    // T&       operator [] (Size index)       { return data[index]; }
+    T& operator [] (Size index) { 
+        assert(index >= 0 && index < sz);
+        return data[index]; 
+    }
+    const T& operator [] (Size index) const { 
+        assert(index >= 0 && index < sz);
+        return data[index]; 
+    }
     // Duplicatation (preferred instead):
     void copyTo(vec<T>& copy) const { copy.clear(); copy.growTo(sz); for (Size i = 0; i < sz; i++) copy[i] = data[i]; }
     void moveTo(vec<T>& dest) { dest.clear(true); dest.data = data; dest.sz = sz; dest.cap = cap; data = NULL; sz = 0; cap = 0; }

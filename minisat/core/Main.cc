@@ -81,7 +81,7 @@ int main(int argc, char** argv)
         double initial_time = cpuTime();
 
         S.verbosity = verb;
-        
+        S.in_scope = false;
         solver = &S;
         // Use signal handlers that forcibly quit until the solver will be able to respond to
         // interrupts:
@@ -110,7 +110,6 @@ int main(int argc, char** argv)
         //parse symmetry file
 		char symFile[strlen(argv[1])+5];
         snprintf(symFile, sizeof(symFile), "%s.txt", argv[1]);
-        
         S.file_path = symFile;
         S.setTempPath(symFile);
 

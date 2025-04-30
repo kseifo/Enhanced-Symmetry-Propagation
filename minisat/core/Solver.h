@@ -154,6 +154,7 @@ public:
 	std::string temp_path;
     int       verbosity;
     double    var_decay;
+	bool 	  in_scope;
     double    clause_decay;
     double    random_var_freq;
     double    random_seed;
@@ -225,6 +226,8 @@ public:
 	void 	modifyOldSymmetries();
 	void    setTempVars();
 	void	setBaseLimit(int limit);
+	bool	checkScope();
+	void 	restoreOGSymmetries();
 protected:
 
     // Helper structures:
@@ -264,6 +267,7 @@ protected:
     vec<CRef>           clauses;          // List of problem clauses.
     vec<CRef>           learnts;          // List of learnt clauses.
     vec<Lit>            trail;            // Assignment stack; stores all assigments made in the order they were made.
+	vec<Lit>            partial_trail;	  // Trail at recalculation, used to check in scope or not.
     vec<int>            trail_lim;        // Separator indices for different decision levels in 'trail'.
     vec<Lit>            assumptions;      // Current set of assumptions provided to solve by the user.
 
@@ -533,9 +537,9 @@ public:
 		nextToPropagate=0;
 	}
 	~Symmetry() {
-		notifiedLits.clear(); // Ensures vec<Lit> is emptied before destruction
-		sym.clear();
-		inv.clear();
+		notifiedLits.clear(true);
+		sym.clear(true);
+		inv.clear(true);
 	}
 	void print(){
 		printf("Symmetry: %i - neededForActive: %i\n",getId(),amountNeededForActive);
@@ -704,15 +708,6 @@ public:
 			// else s->value(symmetrical)==l_True
 		}
 		
-	}
-	vec<Lit>::Size getNotifiedLits(){
-		return notifiedLits.size();
-	}
-	int getNotifiedCap(){
-		return notifiedLits.capacity();
-	}
-	int getRawNext(){
-		return nextToPropagate;
 	}
 	void notifyBacktrack(Lit l){
 		assert(getSymmetrical(l)!=l);

@@ -274,16 +274,25 @@ void Solver::cancelUntil(int level) {
         qhead = trail_lim[level];
         trail.shrink(trail.size() - trail_lim[level]);
         trail_lim.shrink(trail_lim.size() - level);
-
+        
+        if(in_scope && !checkScope()){
+            // Backtrack takes place outside the scope of the recalculated symmetries, revert
+            std::cout<<"Out of scope, restoring original symmetries"<<std::endl;
+            restoreOGSymmetries();
+            in_scope = false;
+        }
     } }
 
 void Solver::addSymmetry(vec<Lit>& from, vec<Lit>& to){
 	assert(from.size()==to.size());
+    
 	Symmetry* sym = new Symmetry(this, from, to, symmetries.size());
 	bool isInverting = false;
 	symmetries.push(sym);
 	for(int i=0; i<from.size(); ++i){
 		assert(from[i]!=to[i]);
+        assert(var(from[i]) < nVars());
+        assert(var(to[i])   < nVars());
 		watcherSymmetries[toInt(from[i])].push(sym);
 		if(from[i]==~to[i]){
 			isInverting = true;
@@ -346,7 +355,7 @@ CRef Solver::propagateSymmetrical(Symmetry* sym, Lit l){
 }
 
 void Solver::notifySymmetries(Lit p){
-	//	printf("Enqueueing %i at level %i - isDecision: %i\n",toInt(p),decisionLevel(),isDecision(p));
+	//  printf("Enqueueing %i at level %i - isDecision: %i\n",toInt(p),decisionLevel(),isDecision(p));
 	for(int i=watcherSymmetries[toInt(p)].size()-1; i>=0 ; --i){
         watcherSymmetries[toInt(p)][i]->notifyEnqueued(p);     
 	}
@@ -369,7 +378,7 @@ void Solver::unsatisfiedClauses(vec<CRef>& result){
 void Solver::clearSymmetries() {
     // Clear watcherSymmetries' inner vectors
     for (int i = 0; i < watcherSymmetries.size(); i++) {
-        watcherSymmetries[i].clearSymmetryVec();
+        watcherSymmetries[i].clear(true);
     }
     // Delete Symmetry objects and dereference pointers
     for (int i = 0; i < symmetries.size(); i++) {
@@ -379,7 +388,7 @@ void Solver::clearSymmetries() {
 
     // Revert number of inverting syms and clear symmetries vec
     invertingSyms = 0;
-    symmetries.clearSymmetryVec();
+    symmetries.clearSymmetryVec(true);
 }
 
 void Solver::textCNF(vec<CRef>& unsats) {
@@ -585,8 +594,6 @@ void Solver::callShatter(){
     if(res!=0){
         std::cerr << "Error running Shatter" << std::endl;
     }
-
-
 }
 
 string Solver::getTempPath(){
@@ -623,25 +630,58 @@ void Solver::increaseLimit(){
 
 void Solver::modifyOldSymmetries(){
     clearSymmetries(); // Clear symmetries vec and watcherSymmetries vec
-
-    // Open symmetry file
     string symFile = getTempPath()+"_new.txt";
+    // Open symmetry file;
     gzFile in = gzopen(symFile.c_str(), "rb");
-
-    if (!in) {
+    if (in == NULL) {
         std::cerr << "ERROR! Could not open file: " << symFile << std::endl;
         return; 
     }
     // Add all new symmetries to solver state and close file
     parse_SYMMETRY(in, *this);
     gzclose(in);
-
-
     // Notify new symmetries about the current state of the solver
     for (int i = 0; i < trail.size(); i++) {
         notifySymmetries(trail[i]);
     }
+    partial_trail.clear();
+    trail.copyTo(partial_trail);
 
+    in_scope = true;
+}
+
+bool Solver::checkScope(){
+    if(partial_trail.size()<trail.size()){
+        return false;
+    }
+    else{
+        for(int i=0; i<partial_trail.size(); ++i){
+            if(partial_trail[i]!=trail[i]){
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+void Solver::restoreOGSymmetries(){
+    clearSymmetries();
+
+    std::string symFile = getFilePath();
+
+    gzFile in=gzopen(symFile.c_str(),"rb");
+    
+    if (in != NULL){
+        parse_SYMMETRY(in,*this);
+    }
+    
+    gzclose(in);
+    
+    for(int i =0; i<trail.size(); i++){
+        notifySymmetries(trail[i]);
+    }
+
+    in_scope = false;
 }
 
 //=================================================================================================
@@ -1392,7 +1432,7 @@ lbool Solver::search(int nof_conflicts)
                     applyReverseMapSymmetries();
                     clearMaps();
                     modifyOldSymmetries();
-                    unsats.clear();
+                    unsats.clearSymmetryVec(true);
                 }
                 
                 if (next == lit_Undef)
